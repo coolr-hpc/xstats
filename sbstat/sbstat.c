@@ -1,3 +1,4 @@
+#include <linux/delay.h>
 #include <linux/cpufreq.h>
 #include <linux/init.h>
 #include <linux/ctype.h>
@@ -248,23 +249,29 @@ struct micstat_counter counters[] = {
 #define MICSTAT_NCNT (sizeof(counters) / sizeof(counters[0]))
 #define MICSTAT_NBUF 128
 
-static int roll_buffer(struct micstat_contexti *ctx) {
+static uint64_t buffer[MICSTAT_NBUF][MICSTAT_NCNT];
+static int buffer_base;
+static int buffer_next;
+static int buffer_size;
+static spinlock_t buffer_lock;
+static uint64_t working_buf[MICSTAT_NCNT];
+
+static int roll_buffer(void) {
     int i;
-    micstat_buffer *buf = ctx.buf;
     for (i = 0; i < MICSTAT_NCNT; i++) {
-        WORKING_BUF(buf)(i) = counters[i].restart(&counters[i]);
+        working_buf[i] = counters[i].restart(&counters[i]);
     }
-    spin_lock_bh(&buf->lock);
-    if (buf->size < buf->nbuf){
-        for (i = 0; i < buf->ncnt; ++i) {
-            BUFFER(buf, buf->next, i) = WORKING_BUF(buf, i);
+    spin_lock_bh(&buffer_lock);
+    if (buffer_size < MICSTAT_NBUF ){
+        for (i = 0; i < MICSTAT_NCNT; ++i) {
+            buffer[buffer_next][i] = working_buf[i];
         }
-        buf->next = (buf->next + 1) % buf->nbuf;
-        buf->size++;
-        spin_unlock_bh(&buf->lock);
+        buffer_next = (buffer_next + 1) % MICSTAT_NBUF;
+        buffer_size ++;
+        spin_unlock_bh(&buffer_lock);
         return 0;
     }
-    spin_unlock_bh(&buf->lock);
+    spin_unlock_bh(&buffer_lock);
     return -1;
 }
 

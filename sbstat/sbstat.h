@@ -18,19 +18,6 @@ typedef int (*func_scnprintf) (char *buf, int limit, uint64_t data);
 typedef int (*func_init) (struct micstat_counter *cnt);
 typedef void (*func_exit) (struct micstat_counter *cnt);
 
-struct micstat_buffer {
-    int nbuf;
-    int ncnt;
-    int base;
-    int next;
-    int size;
-    spintlock_t lock;
-    uint64_t data[0];
-};
-
-#define WORKING_BUF(buf, i) (buf).data[i]
-#define BUFFER(buf, i, j) (buf).data[((i)+1)*((buf).ncnt) + (j)]
-
 struct micstat_counter {
     char name[MICSTAT_LEN];
     func_scnprintf  scnprintf;
@@ -39,14 +26,6 @@ struct micstat_counter {
     func_init       init;
     func_exit       exit;
     void            *data;
-};
-
-struct micstat_context {
-    char tag[MICSTAT_LEN];
-    int cpu;
-    int ncnt;
-    micstat_counter *counters;
-    micstat_buffer *buf;
 };
 
 #endif
