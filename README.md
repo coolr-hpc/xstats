@@ -1,5 +1,5 @@
 # xstats
 kernel modules to collect system information
 
-== micstat
+## micstat
 For Intel Xeon Phi Coprocessor
