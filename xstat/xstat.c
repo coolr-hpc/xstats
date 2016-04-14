@@ -1,10 +1,18 @@
 #include <linux/device.h>
 #include <linux/module.h>
 #include <linux/sysfs.h>
+#include <linux/slab.h>
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Kaicheng Zhang");
 MODULE_DESCRIPTION("X Stat for Intel Processors");
+
+struct xstat_node {
+    struct device dev;
+};
+#define to_node(device) container_of(device, struct xstat_node, dev)
+
+struct xstat_node *xstat_nodes[MAX_NUMNODES];
 
 static ssize_t show_ctrl_attr(
         struct class *class,
@@ -94,14 +102,56 @@ static struct class xstat_class = {
     .dev_groups = xstat_node_attr_groups,
 };
 
+static void xstat_node_device_release(struct device *dev) {
+    struct xstat_node *node = to_node(dev);
+    kfree(node);
+}
+
+static int register_xstat_node(int nid) {
+    int err = 0;
+    struct xstat_node *node;
+
+    if (node_online(nid)) {
+        node = kzalloc(sizeof(struct xstat_node),  GFP_KERNEL);
+        if (!node)
+            return -ENOMEM;
+
+        xstat_nodes[nid] = node;
+
+        node->dev.id = nid;
+        node->dev.release = xstat_node_device_release;
+        node->dev.class = &xstat_class;
+
+        err = device_register(&node->dev);
+    }
+
+    return err;
+}
+
+static void unregister_xstat_node(int nid) {
+    device_unregister(&xstat_nodes[nid]->dev);
+    xstat_nodes[nid] = NULL;
+}
+
 static int __init xstat_init(void) {
-    int ret;
+    int ret, i;
+    for (i = 0; i < MAX_NUMNODES; i++)
+        xstat_nodes[i] = NULL;
 
     ret = class_register(&xstat_class); 
+
+    for_each_online_node(i) {
+        register_xstat_node(i);
+    }
     return ret;
 }
 
 static void __exit xstat_exit(void) {
+    int i;
+    for (i = 0; i < MAX_NUMNODES; i++) {
+        if (xstat_nodes[i])
+            unregister_xstat_node(i);
+    }
     class_unregister(&xstat_class);
 }
 
