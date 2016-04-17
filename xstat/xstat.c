@@ -7,10 +7,14 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Kaicheng Zhang");
 MODULE_DESCRIPTION("X Stat for Intel Processors");
 
+#define STRBUFLEN    8
 struct xstat_node {
-    struct device dev;
+    int id;
+    char stat_name[STRBUFLEN];
+    char last_name[STRBUFLEN];
+    struct class_attribute stat_attr;
+    struct class_attribute last_attr;
 };
-#define to_node(device) container_of(device, struct xstat_node, dev)
 
 struct xstat_node *xstat_nodes[MAX_NUMNODES];
 
@@ -53,24 +57,18 @@ static ssize_t store_reset_attr(
 }
 
 static ssize_t show_stat_attr(
-        struct device *dev,
-        struct device_attribute *attr,
+        struct class *class,
+        struct class_attribute *attr,
         char *buf) {
     return 0;
 }
 
 static ssize_t show_last_attr(
-        struct device *dev,
-        struct device_attribute *attr,
+        struct class *class,
+        struct class_attribute *attr,
         char *buf) {
     return 0;
 }
-
-// static struct class_attribute ctrl_attr = __ATTR(ctrl, 0666, show_ctrl_attr, store_ctrl_attr);
-// static struct class_attribute period_attr = __ATTR(period, 0666, show_period_attr, store_period_attr);
-// static struct device_attribute reset_attr = __ATTR(reset, 0222, NULL, store_reset_attr);
-static struct device_attribute stat_attr = __ATTR(stat, 0444, show_stat_attr, NULL);
-static struct device_attribute last_attr = __ATTR(last, 0444, show_last_attr, NULL);
 
 static struct class_attribute xstat_class_attr[] = {
     __ATTR(ctrl, 0777, show_ctrl_attr, store_ctrl_attr),
@@ -79,33 +77,12 @@ static struct class_attribute xstat_class_attr[] = {
     __ATTR_NULL,
 };
 
-static struct attribute *xstat_node_attrs[] = {
-    &stat_attr,
-    &last_attr,
-    NULL,
-};
-
-static struct attribute_group xstat_node_attr_group = {
-    .attrs = xstat_node_attrs,
-};
-
-static struct attribute_group *xstat_node_attr_groups[] = {
-    &xstat_node_attr_group,
-    NULL,
-};
-
 static struct class xstat_class = {
     .name = "xstat",
     .owner = THIS_MODULE,
 
     .class_attrs = xstat_class_attr,
-    .dev_groups = xstat_node_attr_groups,
 };
-
-static void xstat_node_device_release(struct device *dev) {
-    struct xstat_node *node = to_node(dev);
-    kfree(node);
-}
 
 static int register_xstat_node(int nid) {
     int err = 0;
@@ -118,19 +95,31 @@ static int register_xstat_node(int nid) {
 
         xstat_nodes[nid] = node;
 
-        node->dev.id = nid;
-        node->dev.release = xstat_node_device_release;
-        node->dev.class = &xstat_class;
+        node->id = nid;
+        sprintf(node->stat_name, "stat%d", nid);
+        node->stat_attr.attr.name = node->stat_name;
+        node->stat_attr.attr.mode = 0444;
+        node->stat_attr.show = show_stat_attr;
+        sprintf(node->last_name, "last%d", nid);
+        node->last_attr.attr.name = node->last_name;
+        node->last_attr.attr.mode = 0444;
+        node->last_attr.show = show_last_attr;
 
-        err = device_register(&node->dev);
+        err = class_create_file(&xstat_class, &node->stat_attr);
+        err = class_create_file(&xstat_class, &node->last_attr);
     }
 
     return err;
 }
 
 static void unregister_xstat_node(int nid) {
-    device_unregister(&xstat_nodes[nid]->dev);
-    xstat_nodes[nid] = NULL;
+    struct xstat_node *node = xstat_nodes[nid];
+    if (node) {
+        class_remove_file(&xstat_class, &node->stat_attr);
+        class_remove_file(&xstat_class, &node->last_attr);
+        kfree(node);
+        xstat_nodes[nid] = NULL;
+    }
 }
 
 static int __init xstat_init(void) {
