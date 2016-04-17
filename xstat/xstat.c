@@ -1,4 +1,7 @@
+#include <linux/cpumask.h>
+#include <linux/delay.h>
 #include <linux/device.h>
+#include <linux/kthread.h>
 #include <linux/module.h>
 #include <linux/sysfs.h>
 #include <linux/slab.h>
@@ -10,6 +13,12 @@ MODULE_DESCRIPTION("X Stat for Intel Processors");
 #define STRBUFLEN    8
 struct xstat_node {
     int id;
+    spinlock_t lock;
+
+    struct task_struct *task;
+
+    const struct cpumask *mask;
+
     char stat_name[STRBUFLEN];
     char last_name[STRBUFLEN];
     struct class_attribute stat_attr;
@@ -18,11 +27,88 @@ struct xstat_node {
 
 struct xstat_node *xstat_nodes[MAX_NUMNODES];
 
+static spinlock_t ctrl_lock;
+static unsigned int ctrl_period;
+static bool ctrl_on;
+static int kthread_function(void *data);
+
+static int start_stat(void) {
+    int i;
+    struct xstat_node *node;
+
+    spin_lock(&ctrl_lock);
+    if (!ctrl_on) {
+        ctrl_on = true;
+        
+        for (i = 0; i < MAX_NUMNODES; i++) {
+            if (xstat_nodes[i]) {
+                node = xstat_nodes[i];
+                
+                node->task = kthread_create_on_node(kthread_function, node,
+                        i, "xstat_node%d", i);
+                if (!IS_ERR(node->task)) {
+                    kthread_bind(node->task, cpumask_first(node->mask));
+                    wake_up_process(node->task);
+                } else {
+                    node->task = NULL;
+                }
+            }
+        }
+    }
+    spin_unlock(&ctrl_lock);
+    return 0;
+}
+
+static void stop_stat(void) {
+    int i;
+    struct xstat_node *node;
+
+    spin_lock_bh(&ctrl_lock);
+    if (ctrl_on) {
+        ctrl_on = false;
+
+        for (i = 0; i < MAX_NUMNODES; i++) {
+            if (xstat_nodes[i]) {
+                node = xstat_nodes[i];
+                spin_lock_bh(&node->lock);
+                node->task = NULL;
+                spin_unlock_bh(&node->lock);
+            }
+        }
+    }
+    spin_unlock_bh(&ctrl_lock);
+}
+
+static int init_counters(struct xstat_node *node) {
+    return 0;
+}
+
+static int roll_buffer(struct xstat_node *node) {
+    return 0;
+}
+
+static int kthread_function(void *data) {
+    struct xstat_node *node = (struct xstat_node *) data;
+
+    init_counters(node);
+
+    while (ctrl_on && node->task == current) {
+        roll_buffer(node);
+        msleep(ctrl_period);
+    }
+
+    do_exit(0);
+}
+
 static ssize_t show_ctrl_attr(
         struct class *class,
         struct class_attribute *attr,
         char *buf) {
-    return 0;
+    if (ctrl_on) {
+        return sprintf(buf, "on\n");
+    } else {
+        return sprintf(buf, "off\n");
+    }
 }
 
 static ssize_t store_ctrl_attr(
@@ -30,14 +116,20 @@ static ssize_t store_ctrl_attr(
         struct class_attribute *attr,
         const char *buf,
         size_t count) {
-    return 0;
+    if (count >= 2 && strncmp(buf, "on", 2) == 0) {
+        start_stat();
+    }
+    if (count >= 3 && strncmp(buf, "off", 3) == 0) {
+        stop_stat();
+    }
+    return count;
 }
 
 static ssize_t show_period_attr(
         struct class *class,
         struct class_attribute *attr,
         char *buf) {
-    return 0;
+    return sprintf(buf, "%u\n", ctrl_period);
 }
 
 static ssize_t store_period_attr(
@@ -45,6 +137,16 @@ static ssize_t store_period_attr(
         struct class_attribute *attr,
         const char *buf,
         size_t count) {
+    unsigned long tmp;
+    int ret;
+    ret = kstrtoul(buf, 0, &tmp);
+    if (ret == 0 && tmp > 100 && tmp < 10000) {
+        spin_lock_bh(&ctrl_lock);
+        ctrl_period = tmp;
+        spin_unlock_bh(&ctrl_lock);
+    }
+    return count;
+
     return 0;
 }
 
@@ -96,6 +198,9 @@ static int register_xstat_node(int nid) {
         xstat_nodes[nid] = node;
 
         node->id = nid;
+        node->mask = cpumask_of_node(nid);
+        spin_lock_init(&node->lock);
+
         sprintf(node->stat_name, "stat%d", nid);
         node->stat_attr.attr.name = node->stat_name;
         node->stat_attr.attr.mode = 0444;
@@ -124,6 +229,11 @@ static void unregister_xstat_node(int nid) {
 
 static int __init xstat_init(void) {
     int ret, i;
+
+    spin_lock_init(&ctrl_lock);
+    ctrl_on = false;
+    ctrl_period = 1000;
+
     for (i = 0; i < MAX_NUMNODES; i++)
         xstat_nodes[i] = NULL;
 
@@ -137,6 +247,8 @@ static int __init xstat_init(void) {
 
 static void __exit xstat_exit(void) {
     int i;
+
+    stop_stat();
     for (i = 0; i < MAX_NUMNODES; i++) {
         if (xstat_nodes[i])
             unregister_xstat_node(i);
