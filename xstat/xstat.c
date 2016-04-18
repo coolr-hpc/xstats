@@ -10,6 +10,19 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Kaicheng Zhang");
 MODULE_DESCRIPTION("X Stat for Intel Processors");
 
+#define CHECK_RET(ret) do { \
+    if (ret < 0) { \
+        return ret; \
+    } \
+} while (0)
+
+#include "xstat.h"
+#include "base_cnt.c"
+
+static struct xstat_counter *node_counters[] = {
+    &ts_counter,
+};
+
 #define STRBUFLEN    8
 struct xstat_node {
     int id;
@@ -23,7 +36,17 @@ struct xstat_node {
     char last_name[STRBUFLEN];
     struct class_attribute stat_attr;
     struct class_attribute last_attr;
+
+    void *ctxs;
+    uint64_t *buffer;
+    uint64_t *working_buf;
+    int buffer_base;
+    int buffer_next;
+    int buffer_size;
 };
+
+#define XSTAT_NCNT (sizeof(node_counters) / sizeof(node_counters[0]))
+#define XSTAT_NBUF 256
 
 struct xstat_node *xstat_nodes[MAX_NUMNODES];
 
@@ -80,10 +103,39 @@ static void stop_stat(void) {
 }
 
 static int init_counters(struct xstat_node *node) {
+    int i;
+    for (i = 0; i < XSTAT_NCNT; i++) {
+        if (node_counters[i]->init) {
+            node_counters[i]->init(node->mask, &node->ctxs[i]);
+        }
+    }
     return 0;
 }
 
+static void exit_counters(struct xstat_node *node) {
+    int i;
+    for (i = 0; i < XSTAT_NCNT; i++) {
+        if (node_counters[i]->exit) {
+            node_counters[i]->exit(&node->ctxs[i]);
+        }
+    }
+}
+
 static int roll_buffer(struct xstat_node *node) {
+    int i;
+    for (i = 0; i < XSTAT_NCNT; i++) {
+        node->working_buf[i] = node_counters[i]->restart(&node->ctxs[i],
+                node->working_buf[i]);
+    }
+    spin_lock_bh(&node->lock);
+    memcpy(&node->buffer[node->buffer_next * XSTAT_NCNT], node->working_buf, sizeof(uint64_t) * XSTAT_NCNT);
+    node->buffer_next = (node->buffer_next + 1) % XSTAT_NBUF;
+    if (node->buffer_size < XSTAT_NBUF) {
+        node->buffer_size++;
+    } else {
+        node->buffer_base = (node->buffer_base + 1) % XSTAT_NBUF;
+    }
+    spin_unlock_bh(&node->lock);
     return 0;
 }
 
@@ -96,6 +148,8 @@ static int kthread_function(void *data) {
         roll_buffer(node);
         msleep(ctrl_period);
     }
+
+    exit_counters(node);
 
     do_exit(0);
 }
@@ -158,18 +212,84 @@ static ssize_t store_reset_attr(
     return 0;
 }
 
+static int print_buffer(char *charbuf, int limit, struct xstat_node *node, uint64_t *buf) {
+    char *ptr = charbuf;
+    int ret;
+    int i;
+
+    ret = scnprintf(ptr, limit, "{");
+    CHECK_RET(ret);
+    ptr += ret;
+    limit -= ret;
+
+    for (i = 0; i < XSTAT_NCNT; i++) {
+        if (node_counters[i]->scnprintf != NULL) {
+            ret = node_counters[i]->scnprintf(ptr, limit, buf[i], &node->ctxs[i]);
+            CHECK_RET(ret);
+            ptr += ret;
+            limit -= ret;
+        } else {
+            ret = scnprintf(ptr, limit, "\"%s\":%llu", node_counters[i]->name, buf[i]);
+            CHECK_RET(ret);
+            ptr += ret;
+            limit -= ret;
+        }
+        if (i != XSTAT_NCNT - 1) {
+            ret = scnprintf(ptr, limit, ",");
+            CHECK_RET(ret);
+            ptr += ret;
+            limit -= ret;
+        }
+    }
+
+    ret = scnprintf(ptr, limit, "}\n");
+    CHECK_RET(ret);
+    ptr += ret;
+    limit -= ret;
+
+    return ptr - charbuf;
+}
+
 static ssize_t show_stat_attr(
         struct class *class,
         struct class_attribute *attr,
         char *buf) {
-    return 0;
+    int limit = PAGE_SIZE;
+    int ret;
+    int count = 0;
+    char *ptr = buf;
+    struct xstat_node *node = container_of(attr, struct xstat_node, stat_attr);
+
+    spin_lock_bh(&node->lock);
+    while (limit > (PAGE_SIZE / 2) && node->buffer_size > 0) {
+        ret = print_buffer(ptr, limit, node, &node->buffer[node->buffer_base * XSTAT_NCNT]);
+        if (ret < 0) {
+            break;
+        }
+        count += ret;
+        ptr += ret;
+        limit -= ret;
+        node->buffer_base = (node->buffer_base + 1) % XSTAT_NBUF;
+        node->buffer_size--;
+    }
+    spin_unlock_bh(&node->lock);
+    return count;
 }
 
 static ssize_t show_last_attr(
         struct class *class,
         struct class_attribute *attr,
         char *buf) {
-    return 0;
+    struct xstat_node *node = container_of(attr, struct xstat_node, last_attr);
+    int buffer_last;
+    int ret = 0;
+    spin_lock_bh(&node->lock);
+    if (node->buffer_size > 0) {
+        buffer_last = (node->buffer_base + node->buffer_size - 1) % XSTAT_NBUF;
+        ret = print_buffer(buf, PAGE_SIZE, node, &node->buffer[buffer_last * XSTAT_NCNT]);
+    }
+    spin_unlock_bh(&node->lock);
+    return ret;
 }
 
 static struct class_attribute xstat_class_attr[] = {
@@ -210,6 +330,10 @@ static int register_xstat_node(int nid) {
         node->last_attr.attr.mode = 0444;
         node->last_attr.show = show_last_attr;
 
+        node->ctxs = kzalloc(sizeof(void *) * XSTAT_NCNT, GFP_KERNEL);
+        node->buffer = kzalloc(sizeof(uint64_t) * XSTAT_NCNT * XSTAT_NBUF, GFP_KERNEL);
+        node->working_buf = kzalloc(sizeof(uint64_t) * XSTAT_NCNT, GFP_KERNEL);
+
         err = class_create_file(&xstat_class, &node->stat_attr);
         err = class_create_file(&xstat_class, &node->last_attr);
     }
@@ -222,6 +346,9 @@ static void unregister_xstat_node(int nid) {
     if (node) {
         class_remove_file(&xstat_class, &node->stat_attr);
         class_remove_file(&xstat_class, &node->last_attr);
+        kfree(node->working_buf);
+        kfree(node->buffer);
+        kfree(node->ctxs);
         kfree(node);
         xstat_nodes[nid] = NULL;
     }
