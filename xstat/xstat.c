@@ -18,9 +18,17 @@ MODULE_DESCRIPTION("X Stat for Intel Processors");
 
 #include "xstat.h"
 #include "base_cnt.c"
+#include "hpc_cnt.c"
 
 static struct xstat_counter *node_counters[] = {
     &ts_counter,
+//    &cyc_counter,
+//    &inst_counter,
+//    &llcref_counter,
+//    &llcmiss_counter,
+//    &br_counter,
+//    &brmiss_counter,
+//    &l2lin_counter,
 };
 
 #define STRBUFLEN    8
@@ -106,7 +114,7 @@ static int init_counters(struct xstat_node *node) {
     int i;
     for (i = 0; i < XSTAT_NCNT; i++) {
         if (node_counters[i]->init) {
-            node_counters[i]->init(node->mask, &node->ctxs[i]);
+            node_counters[i]->init(node->mask, node_counters[i]->data, &node->ctxs[i]);
         }
     }
     return 0;
