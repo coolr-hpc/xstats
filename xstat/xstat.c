@@ -106,6 +106,7 @@ static void stop_stat(void) {
             if (xstat_nodes[i]) {
                 node = xstat_nodes[i];
                 spin_lock_bh(&node->lock);
+                kthread_stop(node->task);
                 node->task = NULL;
                 spin_unlock_bh(&node->lock);
             }
@@ -156,14 +157,17 @@ static int kthread_function(void *data) {
 
     init_counters(node);
 
-    while (ctrl_on && node->task == current) {
+    while (true) {
         roll_buffer(node);
+        if (kthread_should_stop()) goto out;
         msleep(ctrl_period);
+        if (kthread_should_stop()) goto out;
     }
 
+out:
     exit_counters(node);
 
-    do_exit(0);
+    return 0;
 }
 
 static ssize_t show_ctrl_attr(
