@@ -99,7 +99,7 @@ static void stop_stat(void) {
     int i;
     struct xstat_node *node;
 
-    spin_lock_bh(&ctrl_lock);
+    spin_lock(&ctrl_lock);
     if (ctrl_on) {
         ctrl_on = false;
 
@@ -111,7 +111,7 @@ static void stop_stat(void) {
             }
         }
     }
-    spin_unlock_bh(&ctrl_lock);
+    spin_unlock(&ctrl_lock);
 }
 
 static int init_counters(struct xstat_node *node) {
