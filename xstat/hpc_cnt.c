@@ -46,6 +46,8 @@ static int perf_init(const struct cpumask *mask, void *data, void **ctx) {
     for_each_cpu_mask(cpu, *mask) {
         event = perf_event_create_kernel_counter(&pe_attr, cpu, NULL, perf_overflow_handler, NULL);
         if (IS_ERR(event) || event == NULL) {
+            printk("xstat: error creating perf_event config = %d, cpu = %d.\n",
+                cfg->config, cpu);
             perf_ctx->events[i].event = NULL;
             i++;
             continue;

@@ -22,13 +22,13 @@ MODULE_DESCRIPTION("X Stat for Intel Processors");
 
 static struct xstat_counter *node_counters[] = {
     &ts_counter,
-//    &cyc_counter,
-//    &inst_counter,
-//    &llcref_counter,
-//    &llcmiss_counter,
-//    &br_counter,
-//    &brmiss_counter,
-//    &l2lin_counter,
+    &cyc_counter,
+    &inst_counter,
+    &llcref_counter,
+    &llcmiss_counter,
+    &br_counter,
+    &brmiss_counter,
+    &l2lin_counter
 };
 
 #define STRBUFLEN    8
@@ -45,7 +45,7 @@ struct xstat_node {
     struct class_attribute stat_attr;
     struct class_attribute last_attr;
 
-    void *ctxs;
+    void **ctxs;
     uint64_t *buffer;
     uint64_t *working_buf;
     int buffer_base;
