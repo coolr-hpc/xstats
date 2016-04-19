@@ -31,6 +31,8 @@ static struct xstat_counter *node_counters[] = {
     &brmiss_counter,
     &l2lin_counter,
     &temp_counter,
+    &energy_counter,
+    &eunit_counter,
 };
 
 #define STRBUFLEN    8

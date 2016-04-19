@@ -39,3 +39,25 @@ static int temp_scnprintf(char *buf, int limit, uint64_t data, void **ctx) {
 #endif
 
 static struct xstat_counter temp_counter = __XSTAT_CNT(temp, NULL, NULL, temp_restart, NULL, temp_scnprintf);
+
+static uint64_t energy_restart(void **ctx, uint64_t last) {
+    uint64_t laste = (uint64_t) *ctx;
+    uint64_t eread;
+    rdmsrl(MSR_PKG_ENERGY_STATUS, eread);
+    *ctx = (void *) eread;
+    eread &= 0xffffffff;
+    if (eread < laste) {
+        eread += 0x100000000LLU;
+    }
+    return eread - laste;
+}
+
+static struct xstat_counter energy_counter = __XSTAT_CNT(energy, NULL, NULL, energy_restart, NULL, NULL);
+
+static uint64_t eunit_restart(void **ctx, uint64_t last) {
+    uint64_t units;
+    rdmsrl(MSR_RAPL_POWER_UNIT, units);
+    return (units >> 8) & 0x1f;
+}
+
+static struct xstat_counter eunit_counter = __XSTAT_CNT(eunit, NULL, NULL, eunit_restart, NULL, NULL);
