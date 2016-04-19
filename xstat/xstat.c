@@ -23,6 +23,7 @@ MODULE_DESCRIPTION("X Stat for Intel Processors");
 
 static struct xstat_counter *node_counters[] = {
     &ts_counter,
+    &intv_counter,
     &cyc_counter,
     &inst_counter,
     &llcref_counter,
@@ -105,10 +106,8 @@ static void stop_stat(void) {
         for (i = 0; i < MAX_NUMNODES; i++) {
             if (xstat_nodes[i]) {
                 node = xstat_nodes[i];
-                spin_lock_bh(&node->lock);
                 kthread_stop(node->task);
                 node->task = NULL;
-                spin_unlock_bh(&node->lock);
             }
         }
     }
@@ -154,13 +153,23 @@ static int roll_buffer(struct xstat_node *node) {
 
 static int kthread_function(void *data) {
     struct xstat_node *node = (struct xstat_node *) data;
+    int tosleep;
+    uint64_t after_roll;
 
     init_counters(node);
 
     while (true) {
         roll_buffer(node);
+        after_roll = get_time();
+        tosleep = (after_roll - (uint64_t) node->ctxs[1]) / 1000000;
+        tosleep = ctrl_period - tosleep - 1;
+        if (tosleep <= 0) tosleep = 0;
         if (kthread_should_stop()) goto out;
-        msleep(ctrl_period);
+        if (tosleep) {
+            msleep(tosleep);
+        } else {
+            schedule();
+        }
         if (kthread_should_stop()) goto out;
     }
 
@@ -210,7 +219,7 @@ static ssize_t store_period_attr(
     unsigned long tmp;
     int ret;
     ret = kstrtoul(buf, 0, &tmp);
-    if (ret == 0 && tmp > 100 && tmp < 10000) {
+    if (ret == 0 && tmp > 0 && tmp < 10000) {
         spin_lock_bh(&ctrl_lock);
         ctrl_period = tmp;
         spin_unlock_bh(&ctrl_lock);
