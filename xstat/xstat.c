@@ -47,8 +47,10 @@ struct xstat_node {
 
     char stat_name[STRBUFLEN];
     char last_name[STRBUFLEN];
+    char reset_name[STRBUFLEN];
     struct class_attribute stat_attr;
     struct class_attribute last_attr;
+    struct class_attribute reset_attr;
 
     void **ctxs;
     uint64_t *buffer;
@@ -234,7 +236,14 @@ static ssize_t store_reset_attr(
         struct class_attribute *attr,
         const char *buf,
         size_t count) {
-    return 0;
+    struct xstat_node *node = container_of(attr, struct xstat_node, reset_attr);
+    if (count > 0) {
+        spin_lock_bh(&node->lock);
+        node->buffer_size = 0;
+        node->buffer_next = node->buffer_base;
+        spin_unlock_bh(&node->lock);
+    }
+    return count;
 }
 
 static int print_buffer(char *charbuf, int limit, struct xstat_node *node, uint64_t *buf) {
@@ -320,7 +329,6 @@ static ssize_t show_last_attr(
 static struct class_attribute xstat_class_attr[] = {
     __ATTR(ctrl, 0777, show_ctrl_attr, store_ctrl_attr),
     __ATTR(period, 0777, show_period_attr, store_period_attr),
-    __ATTR(reset, 0444, NULL, store_reset_attr),
     __ATTR_NULL,
 };
 
@@ -354,6 +362,10 @@ static int register_xstat_node(int nid) {
         node->last_attr.attr.name = node->last_name;
         node->last_attr.attr.mode = 0444;
         node->last_attr.show = show_last_attr;
+        sprintf(node->reset_name, "reset%d", nid);
+        node->reset_attr.attr.name = node->reset_name;
+        node->reset_attr.attr.mode = 0222;
+        node->reset_attr.store = store_reset_attr;
 
         node->ctxs = kzalloc(sizeof(void *) * XSTAT_NCNT, GFP_KERNEL);
         node->buffer = kzalloc(sizeof(uint64_t) * XSTAT_NCNT * XSTAT_NBUF, GFP_KERNEL);
@@ -361,6 +373,7 @@ static int register_xstat_node(int nid) {
 
         err = class_create_file(&xstat_class, &node->stat_attr);
         err = class_create_file(&xstat_class, &node->last_attr);
+        err = class_create_file(&xstat_class, &node->reset_attr);
     }
 
     return err;
@@ -369,6 +382,7 @@ static int register_xstat_node(int nid) {
 static void unregister_xstat_node(int nid) {
     struct xstat_node *node = xstat_nodes[nid];
     if (node) {
+        class_remove_file(&xstat_class, &node->reset_attr);
         class_remove_file(&xstat_class, &node->stat_attr);
         class_remove_file(&xstat_class, &node->last_attr);
         kfree(node->working_buf);
