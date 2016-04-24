@@ -116,6 +116,7 @@ static void xstat_ipmi_msg_handler(struct ipmi_recv_msg *msg, void *user_msg_dat
 	} else {
 		printk(KERN_INFO "xstat:recv invalid ipmi msg: %016llx.\n", (uint64_t) msg->user_msg_data);
 	}
+	msg->done(msg);
 }
 
 static void xstat_bmc_gone(int intf) {}
