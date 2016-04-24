@@ -5,6 +5,7 @@
 #include <linux/module.h>
 #include <linux/sysfs.h>
 #include <linux/slab.h>
+#include <linux/spinlock.h>
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Kaicheng Zhang");
@@ -35,7 +36,10 @@ static struct xstat_counter *node_counters[] = {
     &temp_counter,
     &energy_counter,
     &eunit_counter,
-	&xstat_ipmi_cnts[0],
+#ifdef XSTAT_CHAMELEON
+    &xstat_ipmi_cnts[0],
+    &xstat_ipmi_cnts[1],
+#endif
 };
 
 #define STRBUFLEN    8

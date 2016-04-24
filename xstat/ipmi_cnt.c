@@ -27,17 +27,17 @@ static int xstat_ipmi_scnprintf(char *buf, int limit, uint64_t data, void **_ctx
 #define __IPMI_CNT(ctx) { .name = "ipmi", .init = xstat_ipmi_cnt_init, .exit = NULL, .restart = xstat_ipmi_restart, .reset = NULL, .scnprintf = xstat_ipmi_scnprintf, .data = &ctx }
 #ifdef XSTAT_COOLR
 static struct ipmi_sensor_ctx xstat_sensor_ctxs[] = {
-	__IPMI_CTX("FAN1", 65, 100),
-	__IPMI_CTX("FAN2", 66, 100),
-	__IPMI_CTX("FAN3", 67, 100),
-	__IPMI_CTX("FAN4", 68, 100),
-	__IPMI_CTX("FANA", 71, 100),
-	__IPMI_CTX("FANB", 72, 100),
-	__IPMI_CTX("FANC", 69, 100),
-	__IPMI_CTX("FAND", 70, 100),
+	__IPMI_CTX(FAN1, 65, 100),
+	__IPMI_CTX(FAN2, 66, 100),
+	__IPMI_CTX(FAN3, 67, 100),
+	__IPMI_CTX(FAN4, 68, 100),
+	__IPMI_CTX(FANA, 71, 100),
+	__IPMI_CTX(FANB, 72, 100),
+	__IPMI_CTX(FANC, 69, 100),
+	__IPMI_CTX(FAND, 70, 100),
 };
 static struct ipmi_sensors_ctx xstat_group0_ctx = {
-	.lock = SPIN_LOCK_UNLOCKED,
+	.lock = __SPIN_LOCK_UNLOCKED(xstat_group0_ctx),
 	.user = NULL,
 	.msgid = 0,
 	.nctxs = sizeof(xstat_sensor_ctxs) / sizeof(xstat_sensor_ctxs[0]),
@@ -46,9 +46,44 @@ static struct ipmi_sensors_ctx xstat_group0_ctx = {
 static struct xstat_counter xstat_ipmi_cnts[] = {
 	__IPMI_CNT(xstat_group0_ctx),
 };
-#else
-#ifdef XSTAT_CHAMELEON
 #endif
+#ifdef XSTAT_CHAMELEON
+static struct ipmi_sensor_ctx cham_groupA_ctxs[] = {
+	__IPMI_CTX(Fan1A, 48, 120),
+	__IPMI_CTX(Fan2A, 50, 120),
+	__IPMI_CTX(Fan3A, 52, 120),
+	__IPMI_CTX(Fan4A, 54, 120),
+	__IPMI_CTX(Fan5A, 56, 120),
+	__IPMI_CTX(Fan6A, 58, 120),
+	__IPMI_CTX(Fan7A, 60, 120),
+};
+static struct ipmi_sensor_ctx cham_groupB_ctxs[] = {
+	__IPMI_CTX(Fan1B, 49, 120),
+	__IPMI_CTX(Fan2B, 51, 120),
+	__IPMI_CTX(Fan3B, 53, 120),
+	__IPMI_CTX(Fan4B, 55, 120),
+	__IPMI_CTX(Fan5B, 57, 120),
+	__IPMI_CTX(Fan6B, 58, 120),
+	__IPMI_CTX(Fan7B, 61, 120),
+};
+static struct ipmi_sensors_ctx cham_groupA_ctx = {
+	.lock = __SPIN_LOCK_UNLOCKED(cham_groupA_ctx.lock),
+	.user = NULL,
+	.msgid = 0,
+	.nctxs = sizeof(cham_groupA_ctxs) / sizeof(cham_groupA_ctxs[0]),
+	.ctxs = cham_groupA_ctxs,
+};
+static struct ipmi_sensors_ctx cham_groupB_ctx = {
+	.lock = __SPIN_LOCK_UNLOCKED(cham_groupB_ctx.lock),
+	.user = NULL,
+	.msgid = 0,
+	.nctxs = sizeof(cham_groupB_ctxs) / sizeof(cham_groupB_ctxs[0]),
+	.ctxs = cham_groupB_ctxs,
+};
+static struct xstat_counter xstat_ipmi_cnts[] = {
+	__IPMI_CNT(cham_groupA_ctx),
+	__IPMI_CNT(cham_groupB_ctx),
+};
 #endif
 
 #define N_IPMI_CNTS	(sizeof(xstat_ipmi_cnts) / sizeof(xstat_ipmi_cnts[0]))
@@ -62,11 +97,10 @@ static void xstat_register_bmc(int intf, struct device *dev) {
 	struct ipmi_sensors_ctx *ctx;
 
 	err = ipmi_get_smi_info(intf, &smi_data);
-	if (smi_data.addr_src == SI_ACPI) {
-		for (i = 0; i < N_IPMI_CNTS; i++) {
-			ctx = (struct ipmi_sensors_ctx *) xstat_ipmi_cnts[i].data;
-			err = ipmi_create_user(intf, &xstat_ipmi_hndl, xstat_ipmi_cnts[i].data, &ctx->user);
-		}
+	for (i = 0; i < N_IPMI_CNTS; i++) {
+		ctx = (struct ipmi_sensors_ctx *) xstat_ipmi_cnts[i].data;
+		if (!ctx->user)
+			err = ipmi_create_user(intf, &xstat_ipmi_hndl, ctx, &ctx->user);
 	}
 }
 
@@ -79,6 +113,8 @@ static void xstat_ipmi_msg_handler(struct ipmi_recv_msg *msg, void *user_msg_dat
 		if (msg->msg.data_len > 2) {
 			ctx->sensor_reading = msg->msg.data[1];
 		}
+	} else {
+		printk(KERN_INFO "xstat:recv invalid ipmi msg: %016llx.\n", (uint64_t) msg->user_msg_data);
 	}
 }
 
@@ -110,7 +146,8 @@ static uint64_t xstat_ipmi_restart(void **_ctx, uint64_t last) {
 	msg.netfn = 0x04;
 	msg.cmd = 0x2d;
 	msg.data_len = 1;
-	for (i = 0; i < ctx->nctxs; i++) {
+	for (i = ctx->nctxs - 1; i >= 0; i--) {
+		if (i != ctx->nctxs - 1) ret <<= 8;
 		sctx = &ctx->ctxs[i];
 		if (user) {
 			msg.data = &sctx->config.sensor_number;
@@ -120,7 +157,6 @@ static uint64_t xstat_ipmi_restart(void **_ctx, uint64_t last) {
 			err = ipmi_request_settime(user, &xstat_ipmi_address, msgid, &msg, sctx, 0 ,0, 0);
 		}
 		ret |= sctx->sensor_reading;
-		ret <<= 8;
 	}
 	return ret;
 }
