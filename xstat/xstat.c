@@ -20,6 +20,7 @@ MODULE_DESCRIPTION("X Stat for Intel Processors");
 #include "base_cnt.c"
 #include "hpc_cnt.c"
 #include "msr_cnt.c"
+#include "ipmi_cnt.c"
 
 static struct xstat_counter *node_counters[] = {
     &ts_counter,
@@ -34,6 +35,7 @@ static struct xstat_counter *node_counters[] = {
     &temp_counter,
     &energy_counter,
     &eunit_counter,
+	&xstat_ipmi_cnts[0],
 };
 
 #define STRBUFLEN    8
@@ -403,6 +405,7 @@ static int __init xstat_init(void) {
     for (i = 0; i < MAX_NUMNODES; i++)
         xstat_nodes[i] = NULL;
 
+	xstat_ipmi_init();
     ret = class_register(&xstat_class); 
 
     for_each_online_node(i) {
@@ -420,6 +423,7 @@ static void __exit xstat_exit(void) {
             unregister_xstat_node(i);
     }
     class_unregister(&xstat_class);
+	xstat_ipmi_exit();
 }
 
 module_init(xstat_init);

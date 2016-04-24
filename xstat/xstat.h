@@ -3,6 +3,8 @@
 
 #include <linux/types.h>
 
+#define XSTAT_COOLR
+
 #define XSTAT_CNT_LEN   8
 struct xstat_counter {
     char name[XSTAT_CNT_LEN];
