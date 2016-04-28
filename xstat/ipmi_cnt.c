@@ -66,6 +66,13 @@ static struct ipmi_sensor_ctx cham_groupB_ctxs[] = {
 	__IPMI_CTX(Fan6B, 58, 120),
 	__IPMI_CTX(Fan7B, 61, 120),
 };
+static struct ipmi_sensor_ctx cham_misc_ctxs[] = {
+	__IPMI_CTX(tinlet, 4, 1),
+	__IPMI_CTX(toutlet, 1, 1),
+	__IPMI_CTX(tp0, 14, 1),
+	__IPMI_CTX(tp1, 15, 1),
+	__IPMI_CTX(totpwr, 119, 14),
+};
 static struct ipmi_sensors_ctx cham_groupA_ctx = {
 	.lock = __SPIN_LOCK_UNLOCKED(cham_groupA_ctx.lock),
 	.user = NULL,
@@ -80,9 +87,17 @@ static struct ipmi_sensors_ctx cham_groupB_ctx = {
 	.nctxs = sizeof(cham_groupB_ctxs) / sizeof(cham_groupB_ctxs[0]),
 	.ctxs = cham_groupB_ctxs,
 };
+static struct ipmi_sensors_ctx cham_misc_ctx = {
+	.lock = __SPIN_LOCK_UNLOCKED(cham_misc_ctx.lock),
+	.user = NULL,
+	.msgid = 0,
+	.nctxs = sizeof(cham_misc_ctxs) / sizeof(cham_misc_ctxs[0]),
+	.ctxs = cham_misc_ctxs,
+};
 static struct xstat_counter xstat_ipmi_cnts[] = {
 	__IPMI_CNT(cham_groupA_ctx),
 	__IPMI_CNT(cham_groupB_ctx),
+	__IPMI_CNT(cham_misc_ctx),
 };
 #endif
 
