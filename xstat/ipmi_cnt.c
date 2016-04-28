@@ -2,6 +2,7 @@
 
 struct ipmi_sensor_config {
 	char	name[XSTAT_CNT_LEN];
+	int16_t base;
 	uint8_t sensor_number;
 	uint8_t mul;
 };
@@ -23,18 +24,18 @@ static int xstat_ipmi_cnt_init(const struct cpumask *mask, void *data, void **ct
 static uint64_t xstat_ipmi_restart(void **_ctx, uint64_t last);
 static int xstat_ipmi_scnprintf(char *buf, int limit, uint64_t data, void **_ctx);
 
-#define __IPMI_CTX(sname, snum, smul) { .config = { .name = #sname, .sensor_number = snum, .mul = smul }, .sensor_reading = 0 }
+#define __IPMI_CTX(sname, snum, smul, sbase) { .config = { .name = #sname, .sensor_number = snum, .mul = smul, .base = sbase }, .sensor_reading = 0 }
 #define __IPMI_CNT(ctx) { .name = "ipmi", .init = xstat_ipmi_cnt_init, .exit = NULL, .restart = xstat_ipmi_restart, .reset = NULL, .scnprintf = xstat_ipmi_scnprintf, .data = &ctx }
 #ifdef XSTAT_COOLR
 static struct ipmi_sensor_ctx xstat_sensor_ctxs[] = {
-	__IPMI_CTX(FAN1, 65, 100),
-	__IPMI_CTX(FAN2, 66, 100),
-	__IPMI_CTX(FAN3, 67, 100),
-	__IPMI_CTX(FAN4, 68, 100),
-	__IPMI_CTX(FANA, 71, 100),
-	__IPMI_CTX(FANB, 72, 100),
-	__IPMI_CTX(FANC, 69, 100),
-	__IPMI_CTX(FAND, 70, 100),
+	__IPMI_CTX(FAN1, 65, 100, 0),
+	__IPMI_CTX(FAN2, 66, 100, 0),
+	__IPMI_CTX(FAN3, 67, 100, 0),
+	__IPMI_CTX(FAN4, 68, 100, 0),
+	__IPMI_CTX(FANA, 71, 100, 0),
+	__IPMI_CTX(FANB, 72, 100, 0),
+	__IPMI_CTX(FANC, 69, 100, 0),
+	__IPMI_CTX(FAND, 70, 100, 0),
 };
 static struct ipmi_sensors_ctx xstat_group0_ctx = {
 	.lock = __SPIN_LOCK_UNLOCKED(xstat_group0_ctx),
@@ -49,29 +50,29 @@ static struct xstat_counter xstat_ipmi_cnts[] = {
 #endif
 #ifdef XSTAT_CHAMELEON
 static struct ipmi_sensor_ctx cham_groupA_ctxs[] = {
-	__IPMI_CTX(Fan1A, 48, 120),
-	__IPMI_CTX(Fan2A, 50, 120),
-	__IPMI_CTX(Fan3A, 52, 120),
-	__IPMI_CTX(Fan4A, 54, 120),
-	__IPMI_CTX(Fan5A, 56, 120),
-	__IPMI_CTX(Fan6A, 58, 120),
-	__IPMI_CTX(Fan7A, 60, 120),
+	__IPMI_CTX(Fan1A, 48, 120, 0),
+	__IPMI_CTX(Fan2A, 50, 120, 0),
+	__IPMI_CTX(Fan3A, 52, 120, 0),
+	__IPMI_CTX(Fan4A, 54, 120, 0),
+	__IPMI_CTX(Fan5A, 56, 120, 0),
+	__IPMI_CTX(Fan6A, 58, 120, 0),
+	__IPMI_CTX(Fan7A, 60, 120, 0),
 };
 static struct ipmi_sensor_ctx cham_groupB_ctxs[] = {
-	__IPMI_CTX(Fan1B, 49, 120),
-	__IPMI_CTX(Fan2B, 51, 120),
-	__IPMI_CTX(Fan3B, 53, 120),
-	__IPMI_CTX(Fan4B, 55, 120),
-	__IPMI_CTX(Fan5B, 57, 120),
-	__IPMI_CTX(Fan6B, 58, 120),
-	__IPMI_CTX(Fan7B, 61, 120),
+	__IPMI_CTX(Fan1B, 49, 120, 0),
+	__IPMI_CTX(Fan2B, 51, 120, 0),
+	__IPMI_CTX(Fan3B, 53, 120, 0),
+	__IPMI_CTX(Fan4B, 55, 120, 0),
+	__IPMI_CTX(Fan5B, 57, 120, 0),
+	__IPMI_CTX(Fan6B, 58, 120, 0),
+	__IPMI_CTX(Fan7B, 61, 120, 0),
 };
 static struct ipmi_sensor_ctx cham_misc_ctxs[] = {
-	__IPMI_CTX(tinlet, 4, 1),
-	__IPMI_CTX(toutlet, 1, 1),
-	__IPMI_CTX(tp0, 14, 1),
-	__IPMI_CTX(tp1, 15, 1),
-	__IPMI_CTX(totpwr, 119, 14),
+	__IPMI_CTX(tinlet, 4, 1, -128),
+	__IPMI_CTX(toutlet, 1, 1, -128),
+	__IPMI_CTX(tp0, 14, 1, -128),
+	__IPMI_CTX(tp1, 15, 1, -128),
+	__IPMI_CTX(totpwr, 119, 14, 0),
 };
 static struct ipmi_sensors_ctx cham_groupA_ctx = {
 	.lock = __SPIN_LOCK_UNLOCKED(cham_groupA_ctx.lock),
@@ -185,6 +186,7 @@ static int xstat_ipmi_scnprintf(char *buf, int limit, uint64_t data, void **_ctx
 	char *ptr = buf;
 	for (i = 0; i < ctx->nctxs; i++) {
 		val = data & 0xff;
+		val += ctx->ctxs[i].config.base;
 		data >>= 8;
 		val *= ctx->ctxs[i].config.mul;
 		if (i == 0) {
