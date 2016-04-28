@@ -39,6 +39,7 @@ static struct xstat_counter *node_counters[] = {
 #ifdef XSTAT_CHAMELEON
     &xstat_ipmi_cnts[0],
     &xstat_ipmi_cnts[1],
+    &xstat_ipmi_cnts[2],
 #endif
 };
 
