@@ -247,7 +247,7 @@ static ssize_t store_reset_attr(
     if (count > 0) {
         spin_lock_bh(&node->lock);
         node->buffer_size = 0;
-        node->buffer_next = node->buffer_base;
+        node->buffer_base = node->buffer_next;
         spin_unlock_bh(&node->lock);
     }
     return count;
@@ -325,10 +325,8 @@ static ssize_t show_last_attr(
     int buffer_last;
     int ret = 0;
     spin_lock_bh(&node->lock);
-    if (node->buffer_size > 0) {
-        buffer_last = (node->buffer_base + node->buffer_size - 1) % XSTAT_NBUF;
-        ret = print_buffer(buf, PAGE_SIZE, node, &node->buffer[buffer_last * XSTAT_NCNT]);
-    }
+    buffer_last = (XSTAT_NBUF + node->buffer_next - 1) % XSTAT_NBUF;
+    ret = print_buffer(buf, PAGE_SIZE, node, &node->buffer[buffer_last * XSTAT_NCNT]);
     spin_unlock_bh(&node->lock);
     return ret;
 }
