@@ -166,6 +166,7 @@ static int kthread_function(void *data) {
         tosleep = (after_roll - (uint64_t) node->ctxs[1]) / 1000000;
         tosleep = ctrl_period - tosleep - 1;
         if (tosleep <= 0) tosleep = 0;
+        if (tosleep > ctrl_period) tosleep = ctrl_period;
         if (kthread_should_stop()) goto out;
         if (tosleep) {
             msleep(tosleep);
