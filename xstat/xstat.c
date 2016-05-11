@@ -5,6 +5,7 @@
 #include <linux/module.h>
 #include <linux/sysfs.h>
 #include <linux/slab.h>
+#include <linux/spinlock.h>
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Kaicheng Zhang");
@@ -20,6 +21,7 @@ MODULE_DESCRIPTION("X Stat for Intel Processors");
 #include "base_cnt.c"
 #include "hpc_cnt.c"
 #include "msr_cnt.c"
+#include "ipmi_cnt.c"
 
 static struct xstat_counter *node_counters[] = {
     &ts_counter,
@@ -34,6 +36,11 @@ static struct xstat_counter *node_counters[] = {
     &temp_counter,
     &energy_counter,
     &eunit_counter,
+#ifdef XSTAT_CHAMELEON
+    &xstat_ipmi_cnts[0],
+    &xstat_ipmi_cnts[1],
+    &xstat_ipmi_cnts[2],
+#endif
 };
 
 #define STRBUFLEN    8
@@ -241,7 +248,7 @@ static ssize_t store_reset_attr(
     if (count > 0) {
         spin_lock_bh(&node->lock);
         node->buffer_size = 0;
-        node->buffer_next = node->buffer_base;
+        node->buffer_base = node->buffer_next;
         spin_unlock_bh(&node->lock);
     }
     return count;
@@ -319,10 +326,8 @@ static ssize_t show_last_attr(
     int buffer_last;
     int ret = 0;
     spin_lock_bh(&node->lock);
-    if (node->buffer_size > 0) {
-        buffer_last = (node->buffer_base + node->buffer_size - 1) % XSTAT_NBUF;
-        ret = print_buffer(buf, PAGE_SIZE, node, &node->buffer[buffer_last * XSTAT_NCNT]);
-    }
+    buffer_last = (XSTAT_NBUF + node->buffer_next - 1) % XSTAT_NBUF;
+    ret = print_buffer(buf, PAGE_SIZE, node, &node->buffer[buffer_last * XSTAT_NCNT]);
     spin_unlock_bh(&node->lock);
     return ret;
 }
@@ -404,6 +409,7 @@ static int __init xstat_init(void) {
     for (i = 0; i < MAX_NUMNODES; i++)
         xstat_nodes[i] = NULL;
 
+	xstat_ipmi_init();
     ret = class_register(&xstat_class); 
 
     for_each_online_node(i) {
@@ -421,6 +427,7 @@ static void __exit xstat_exit(void) {
             unregister_xstat_node(i);
     }
     class_unregister(&xstat_class);
+	xstat_ipmi_exit();
 }
 
 module_init(xstat_init);
