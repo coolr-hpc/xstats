@@ -21,7 +21,9 @@ MODULE_DESCRIPTION("X Stat for Intel Processors");
 #include "base_cnt.c"
 #include "hpc_cnt.c"
 #include "msr_cnt.c"
+#ifdef XSTAT_IPMI
 #include "ipmi_cnt.c"
+#endif
 
 static struct xstat_counter *node_counters[] = {
     &ts_counter,
@@ -36,10 +38,13 @@ static struct xstat_counter *node_counters[] = {
     &temp_counter,
     &energy_counter,
     &eunit_counter,
+    &perflmt_counter,
+#ifdef XSTAT_IPMI
 #ifdef XSTAT_CHAMELEON
     &xstat_ipmi_cnts[0],
     &xstat_ipmi_cnts[1],
     &xstat_ipmi_cnts[2],
+#endif
 #endif
 };
 
@@ -409,7 +414,9 @@ static int __init xstat_init(void) {
     for (i = 0; i < MAX_NUMNODES; i++)
         xstat_nodes[i] = NULL;
 
+#ifdef XSTAT_IPMI
 	xstat_ipmi_init();
+#endif
     ret = class_register(&xstat_class); 
 
     for_each_online_node(i) {
@@ -427,7 +434,9 @@ static void __exit xstat_exit(void) {
             unregister_xstat_node(i);
     }
     class_unregister(&xstat_class);
+#ifdef XSTAT_IPMI
 	xstat_ipmi_exit();
+#endif
 }
 
 module_init(xstat_init);

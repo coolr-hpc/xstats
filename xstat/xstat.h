@@ -3,6 +3,7 @@
 
 #include <linux/types.h>
 
+#define XSTAT_IPMI
 // #define XSTAT_COOLR
 #define XSTAT_CHAMELEON
 

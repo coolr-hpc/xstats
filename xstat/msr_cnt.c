@@ -61,3 +61,13 @@ static uint64_t eunit_restart(void **ctx, uint64_t last) {
 }
 
 static struct xstat_counter eunit_counter = __XSTAT_CNT(eunit, NULL, NULL, eunit_restart, NULL, NULL);
+
+#define MSR_CORE_PERF_LIMIT_REASONS_RST_MASK 0xffffffff0000ffffULL
+static uint64_t perflmt_restart(void **ctx, uint64_t last) {
+    uint64_t perf_limit;
+    rdmsrl(MSR_CORE_PERF_LIMIT_REASONS, perf_limit);
+    wrmsrl(MSR_CORE_PERF_LIMIT_REASONS, perf_limit & MSR_CORE_PERF_LIMIT_REASONS_RST_MASK);
+    return perf_limit;
+}
+
+static struct xstat_counter perflmt_counter = __XSTAT_CNT(perflmt, NULL, NULL, perflmt_restart, NULL, NULL);
